@@ -6,7 +6,7 @@
 			"type": "shell",
 			"command": "bash",
 			"args": [
-				"${workspaceFolder}/kubernetes/k8sCreateScript.sh"
+				"${workspaceFolder}/kubernetes/scripts/k8sCreateScript.sh"
 			],
 			"isBackground": false,
 			"problemMatcher": []

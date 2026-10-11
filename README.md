@@ -47,9 +47,11 @@ than silently ignoring the station.
 | File | Purpose |
 | --- | --- |
 | [src/weather.html](src/weather.html) | Dashboard markup, styles, API calls, and rendering |
-| [kubernetes/weather-k8s.yaml](kubernetes/weather-k8s.yaml) | Kubernetes resources and nginx configuration |
-| [kubernetes/k8sCreateScript.sh](kubernetes/k8sCreateScript.sh) | Initial deployment and repeatable manifest application |
-| [kubernetes/k8sUpdateScript.sh](kubernetes/k8sUpdateScript.sh) | Update the deployed HTML ConfigMap only |
+| [kubernetes/base/weather-k8s.yaml](kubernetes/base/weather-k8s.yaml) | Kubernetes resources and nginx configuration |
+| [kubernetes/base/kustomization.yaml](kubernetes/base/kustomization.yaml) | Shared Kustomize base |
+| `kubernetes/local/kustomization.yaml` (Git-ignored) | Optional LAN-specific Service IP override |
+| [kubernetes/scripts/k8sCreateScript.sh](kubernetes/scripts/k8sCreateScript.sh) | Initial deployment and repeatable manifest application |
+| [kubernetes/scripts/k8sUpdateScript.sh](kubernetes/scripts/k8sUpdateScript.sh) | Update the deployed HTML ConfigMap only |
 
 ## Local preview
 
@@ -64,8 +66,8 @@ server. Browser developer tools show provider request errors.
   resources in this manifest, including the `weather` Namespace.
 - Bash to run the deployment scripts.
 - Cluster nodes able to pull the public nginx image from Docker Hub.
-- MetalLB **0.14 or newer**, with **10.8.20.244** available in an address pool.
-  Change `metallb.io/loadBalancerIPs` in the manifest for another environment.
+- MetalLB **0.14 or newer**, with an available address in an address pool.
+  Configure the optional local overlay below to pin a specific address.
 - A NetworkPolicy-enforcing CNI, such as Calico.
 - Preferably multiple schedulable nodes for the two replicas. Soft anti-affinity
   prefers separate nodes but permits both replicas on one node.
@@ -80,10 +82,37 @@ kubectl config current-context
 
 ### First-time deployment
 
+The shared manifest does not pin an external IP. Without a local overlay,
+MetalLB assigns an address from its pool.
+
+To pin your LAN address, create `kubernetes/local/kustomization.yaml` with the
+following content, replacing `<WEATHER_EXTERNAL_IP>` with an available address:
+
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base
+patches:
+  - target:
+      kind: Service
+      name: weather
+    patch: |-
+      - op: add
+        path: /metadata/annotations/metallb.io~1loadBalancerIPs
+        value: <WEATHER_EXTERNAL_IP>
+```
+
+The entire `kubernetes/local/` directory is Git-ignored. The create script uses
+that overlay when the directory exists; otherwise it uses the shared base.
+An invalid or incomplete local overlay fails deployment rather than falling
+back to the base. Removing the overlay and applying the base can remove an
+existing IP pin, so retain your local configuration.
+
 From the project root:
 
 ```bash
-bash kubernetes/k8sCreateScript.sh
+bash kubernetes/scripts/k8sCreateScript.sh
 ```
 
 Both scripts resolve their input files relative to their own location. You can
@@ -101,7 +130,7 @@ Pods may temporarily wait for `weather-site` because the manifest is applied
 before that ConfigMap is created. The script is repeatable: existing resources
 are updated declaratively instead of failing with "already exists."
 
-Open **http://10.8.20.244/** once MetalLB assigns the address. Deployment readiness
+Open `http://<WEATHER_EXTERNAL_IP>/` once MetalLB assigns the address. Deployment readiness
 does not guarantee that the external IP has been assigned.
 
 Verify:
@@ -109,7 +138,8 @@ Verify:
 ```bash
 kubectl -n weather get pods -l app=weather
 kubectl -n weather get svc weather
-curl --fail --silent --show-error -D - -o /dev/null http://10.8.20.244/
+WEATHER_IP="$(kubectl -n weather get svc weather -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+test -n "$WEATHER_IP" && curl --fail --silent --show-error -D - -o /dev/null "http://$WEATHER_IP/"
 ```
 
 The page should return HTTP 200. The nginx configuration uses
@@ -130,7 +160,7 @@ Then open **http://localhost:8080/**.
 Edit [src/weather.html](src/weather.html), then run:
 
 ```bash
-bash -eo pipefail kubernetes/k8sUpdateScript.sh
+bash -eo pipefail kubernetes/scripts/k8sUpdateScript.sh
 ```
 
 The explicit Bash options stop on errors and propagate failures from the
@@ -146,7 +176,8 @@ running its old JavaScript until reloaded.
 To compare the served HTML with your source:
 
 ```bash
-curl --fail --silent --show-error http://10.8.20.244/ |
+WEATHER_IP="$(kubectl -n weather get svc weather -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+test -n "$WEATHER_IP" && curl --fail --silent --show-error "http://$WEATHER_IP/" |
   diff - src/weather.html
 ```
 
@@ -154,17 +185,21 @@ No diff output indicates a match for the replica that served that request.
 
 ### Updating Kubernetes or nginx configuration
 
-Edit [kubernetes/weather-k8s.yaml](kubernetes/weather-k8s.yaml), then optionally
+Edit [kubernetes/base/weather-k8s.yaml](kubernetes/base/weather-k8s.yaml), then optionally
 validate against the cluster without saving changes:
 
 ```bash
-kubectl apply --dry-run=server -f kubernetes/weather-k8s.yaml
+kubectl apply --dry-run=server -k kubernetes/local
 ```
+
+Use `-k kubernetes/base` instead if you do not have a local overlay. You can preview
+the rendered configuration without contacting the cluster using
+`kubectl kustomize kubernetes/local` (or `kubectl kustomize kubernetes/base`).
 
 Apply the changes:
 
 ```bash
-bash kubernetes/k8sCreateScript.sh
+bash kubernetes/scripts/k8sCreateScript.sh
 ```
 
 Deployment pod-template changes, such as a new image or mount, trigger a rollout
@@ -218,7 +253,7 @@ kubectl -n weather logs -l app=weather --all-containers=true --tail=100
   `weather-nginx-config` exist in the `weather` namespace.
 - **Rollout timeout:** inspect pod events, image pulls, scheduling, and probe
   failures. The timeout does not roll back already-applied resources.
-- **External IP pending:** check MetalLB, its pool, and whether 10.8.20.244 is
+- **External IP pending:** check MetalLB, its pool, and whether your requested IP is
   available.
 - **Old HTML:** wait for ConfigMap propagation, check both replicas, and reload
   the browser.

@@ -17,6 +17,7 @@
 .kube/
 kubeconfig
 kubeconfig.*
+/kubernetes/local/
 
 # Logs
 *.log

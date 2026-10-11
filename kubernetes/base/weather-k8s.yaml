@@ -1,5 +1,5 @@
 # Serves weather.html (as index.html) from a ConfigMap using unprivileged nginx.
-# No custom image or private registry needed. Run k8sCreateScript.sh to apply this
+# No custom image or private registry needed. Run ../scripts/k8sCreateScript.sh to apply this
 # manifest and create the ConfigMap; pods wait until the ConfigMap exists.
 # Directory-mounted ConfigMap updates propagate eventually without a rollout.
 apiVersion: v1
@@ -136,9 +136,8 @@ kind: Service
 metadata:
   name: weather
   namespace: weather
-  # This address must remain available in the MetalLB 0.14+ address pool.
-  annotations:
-    metallb.io/loadBalancerIPs: 10.8.20.244
+  # Environment-specific MetalLB addresses are set by a local Kustomize overlay.
+  annotations: {}
 spec:
   type: LoadBalancer
   selector:
