@@ -1,0 +1,22 @@
+# macOS metadata
+.DS_Store
+._*
+
+# Editor-local settings; keep shared VS Code tasks
+.idea/
+.vscode/*
+!.vscode/tasks.json
+*.swp
+*.swo
+*~
+
+# Local environment files and Kubernetes credentials
+.env
+.env.*
+!.env.example
+.kube/
+kubeconfig
+kubeconfig.*
+
+# Logs
+*.log

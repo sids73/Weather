@@ -1,0 +1,15 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Deploy weather to Kubernetes",
+			"type": "shell",
+			"command": "bash",
+			"args": [
+				"${workspaceFolder}/kubernetes/k8sCreateScript.sh"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		}
+	]
+}

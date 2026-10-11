@@ -1,0 +1,149 @@
+# Serves weather.html (as index.html) from a ConfigMap using unprivileged nginx.
+# No custom image or private registry needed. Run k8sCreateScript.sh to apply this
+# manifest and create the ConfigMap; pods wait until the ConfigMap exists.
+# Directory-mounted ConfigMap updates propagate eventually without a rollout.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: weather
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: weather-nginx-config
+  namespace: weather
+data:
+  server-tokens.conf: |
+    server_tokens off;
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: weather
+  namespace: weather
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: weather
+  template:
+    metadata:
+      labels:
+        app: weather
+    spec:
+      automountServiceAccountToken: false
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: weather
+                topologyKey: kubernetes.io/hostname
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nginx
+          image: nginxinc/nginx-unprivileged:1.30.5-alpine@sha256:15c994d10d6d78658721c3bcafff14cb281fba2a4bdf9d5ba92c416a472516e3
+          ports:
+            - name: http
+              containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+              ephemeral-storage: 64Mi
+            limits:
+              memory: 64Mi
+              ephemeral-storage: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 6
+          volumeMounts:
+            - name: site
+              mountPath: /usr/share/nginx/html
+              readOnly: true
+            # subPath preserves default.conf; restart pods after config changes.
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d/server-tokens.conf
+              subPath: server-tokens.conf
+              readOnly: true
+            # nginx needs writable scratch dirs when the root filesystem is read-only
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: site
+          configMap:
+            name: weather-site
+        - name: nginx-config
+          configMap:
+            name: weather-nginx-config
+        - name: tmp
+          emptyDir:
+            sizeLimit: 32Mi
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: weather
+  namespace: weather
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: weather
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: weather
+  namespace: weather
+spec:
+  podSelector:
+    matchLabels:
+      app: weather
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8080
+  # Browser-side weather API calls do not originate from these static-server pods.
+  egress: []
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: weather
+  namespace: weather
+  # This address must remain available in the MetalLB 0.14+ address pool.
+  annotations:
+    metallb.io/loadBalancerIPs: 10.8.20.244
+spec:
+  type: LoadBalancer
+  selector:
+    app: weather
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
