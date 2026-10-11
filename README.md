@@ -62,6 +62,20 @@ server. Browser developer tools show provider request errors.
 
 ## Kubernetes prerequisites
 
+> **Load balancer assumption:** The external-access and IP-pinning instructions
+> below assume MetalLB 0.14 or newer. The shared `type: LoadBalancer` Service can
+> also work with other Kubernetes load balancer implementations, but the
+> `metallb.io/loadBalancerIPs` annotation is MetalLB-specific and is not a
+> portable way to reserve an address.
+>
+> For a different implementation, follow its documentation for provisioning a
+> load balancer and requesting a static address, and adapt the local Kustomize
+> overlay accordingly. This may require provider-specific annotations or
+> reserving an address outside Kubernetes; some providers return a hostname
+> instead of an IP. Adapt the verification commands accordingly. Without a
+> load balancer controller, external access can remain pending; port forwarding
+> below is available for testing.
+
 - A Kubernetes cluster and `kubectl` configured with permissions to manage the
   resources in this manifest, including the `weather` Namespace.
 - Bash to run the deployment scripts.
