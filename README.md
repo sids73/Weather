@@ -83,8 +83,9 @@ server. Browser developer tools show provider request errors.
 - MetalLB **0.14 or newer**, with an available address in an address pool.
   Configure the optional local overlay below to pin a specific address.
 - A NetworkPolicy-enforcing CNI, such as Calico.
-- Preferably multiple schedulable nodes for the two replicas. Soft anti-affinity
-  prefers separate nodes but permits both replicas on one node.
+- At least two eligible schedulable nodes for the two replicas. Required pod
+  anti-affinity prevents weather pods from sharing a node; if only one eligible
+  node is available, the second replica remains Pending.
 - Network access from your device to the LoadBalancer IP and from your browser
   to the external weather providers.
 
@@ -217,7 +218,11 @@ bash kubernetes/scripts/k8sCreateScript.sh
 ```
 
 Deployment pod-template changes, such as a new image or mount, trigger a rollout
-automatically. **Changes only to `weather-nginx-config` require an explicit
+automatically. Rolling updates use `maxSurge: 0` and `maxUnavailable: 1`, replacing
+one pod at a time so required anti-affinity does not require a third node during
+updates. This temporarily reduces available replicas to one.
+
+**Changes only to `weather-nginx-config` require an explicit
 restart:** its file is mounted using `subPath`, which does not receive ConfigMap
 updates, and nginx must read the new configuration at startup.
 
